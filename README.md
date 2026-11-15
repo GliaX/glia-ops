@@ -25,6 +25,17 @@ bench --site asset.glia.org execute glia_ops.backups.run_check
 # or, as an admin, GET /api/method/glia_ops.backups.run_check
 ```
 
+## SEO redirects
+
+`glia_ops.redirects.generate_redirects` creates the Shopify → ERPNext 301 map
+using the data in the database (`/products/<handle>`, `/pages/<handle>`,
+`/blogs/<b>/<p>`, `/collections/<handle>`, `/account*`). It is idempotent, so it
+can be re-run whenever products or pages are added:
+
+```sh
+bench --site asset.glia.org execute glia_ops.redirects.generate_redirects
+```
+
 ## Install
 
 ```sh
