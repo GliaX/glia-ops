@@ -17,14 +17,21 @@ def related_posts(route=None, blog=None, limit=4):
 	except (TypeError, ValueError):
 		limit = 4
 
-	filters = {"published": 1}
+	# `Blog Post.blog` stores the Blog *name*; the URL carries the slug.
+	blog_name = None
 	if blog:
-		filters["blog"] = blog
+		blog_name = frappe.db.get_value("Blog", {"slug": blog}, "name") or blog
+		if not frappe.db.exists("Blog", blog_name):
+			blog_name = None
+
+	filters = {"published": 1}
+	if blog_name:
+		filters["blog"] = blog_name
 
 	posts = frappe.get_all(
 		"Blog Post",
 		filters=filters,
-		fields=["title", "route", "published_on", "blog", "meta_image"],
+		fields=["title", "route", "published_on", "blog", "cover_image"],
 		order_by="published_on desc",
 		limit=limit + 4,
 	)
@@ -40,7 +47,7 @@ def related_posts(route=None, blog=None, limit=4):
 				"title": post.get("title"),
 				"route": post.get("route"),
 				"date": str(post.get("published_on") or "")[:10],
-				"image": post.get("meta_image"),
+				"image": post.get("cover_image"),
 			}
 		)
 		if len(out) >= limit:
