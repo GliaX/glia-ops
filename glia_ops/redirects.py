@@ -20,7 +20,34 @@ from __future__ import annotations
 
 import frappe
 
-COLLECTIONS = ("all", "glia", "merch", "devices", "donation", "donations", "frontpage")
+# Every collection handle Shopify ever exposed (from the Admin API). The new site
+# has a single storefront listing, so all of them land there.
+COLLECTIONS = (
+	"all",
+	"glia",
+	"merch",
+	"glia-merch",
+	"frontpage",
+	"featured",
+	"apil",
+	"glia-donations",
+	"education",
+	"ppe",
+	"fanatics",
+	"help-support-glia-campaigns",
+)
+
+# Shopify URLs whose handle does not equal the ERPNext route, plus the two
+# event-admission products that are not sold on the new site.
+EXTRA_REDIRECTS = (
+	("pages/contact", "contact"),
+	("pages/stethoscope", "stethoscope"),
+	("pages/otoscope", "otoscope"),
+	("pages/dhul-hijjah-daily-giving", "dhul-hijjah-daily-giving"),
+	("products/chicago_lovesongs4gaza", "chicago-lovesongs4gaza"),
+	("products/event-admission", "all-products"),
+	("products/event-admission-restoring-care-sumud-screening", "all-products"),
+)
 STATUS = "301"
 
 
@@ -88,6 +115,9 @@ def generate_redirects():
 
 	for handle in COLLECTIONS:
 		record("collection", f"collections/{handle}", "all-products")
+
+	for source, target in EXTRA_REDIRECTS:
+		record("override", source, target)
 	record("account", "account", "login")
 	record("account", "account/login", "login")
 	record("account", "account/register", "login")
