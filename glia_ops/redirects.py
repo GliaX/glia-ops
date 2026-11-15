@@ -40,6 +40,11 @@ COLLECTIONS = (
 # Shopify URLs whose handle does not equal the ERPNext route, plus the two
 # event-admission products that are not sold on the new site.
 EXTRA_REDIRECTS = (
+	# Frappe truncates long routes, so the Shopify handle needs its own hop.
+	(
+		"blogs/press-releases/palestinian-led-team-produces-first-fully-local-external-fixator-in-gaza-using-recycled-plastics-3d-printing-and-solar-power",
+		"blog/press-releases/palestinian-led-team-produces-first-fully-local-external-fixator-in-gaza-using-recycled-plastics-3d-printing-a",
+	),
 	("pages/contact", "contact"),
 	("pages/stethoscope", "stethoscope"),
 	("pages/otoscope", "otoscope"),
@@ -88,7 +93,7 @@ def generate_redirects():
 		if normalised in seen:
 			stats["exists"] += 1
 			return
-		result = _append(settings, source, target)
+		result = _append(settings, source, absolute(target))
 		stats[result] = stats.get(result, 0) + 1
 		if result == "created":
 			seen.add(normalised)
