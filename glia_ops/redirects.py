@@ -81,6 +81,18 @@ def _append(settings, source: str, target: str) -> str:
 	return "created"
 
 
+def absolute(target: str) -> str:
+	"""Redirect targets must be root-absolute.
+
+	Frappe substitutes the target into the matched path verbatim, so a target like
+	"stethoscope" sends /products/stethoscope to /products/stethoscope again
+	(a loop) instead of to /stethoscope.
+	"""
+	if not target or target.startswith(("/", "http://", "https://", "mailto:", "tel:")):
+		return target
+	return "/" + target
+
+
 def generate_redirects():
 	"""Add the Shopify → ERPNext redirects to Website Settings.route_redirects."""
 	stats = {"created": 0, "exists": 0, "skip": 0}
