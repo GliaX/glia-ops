@@ -46,7 +46,35 @@ def _backups():
 	return _check("backups", age <= 26, f"newest backup {state.get('stamp')} is {age:.1f} h old", "critical")
 
 
+def _follow(target: str) -> tuple[int, int]:
+	"""Return (final status, hops) for a path on this site, following redirects."""
+	import urllib.error
+	import urllib.request
+
+	base = "https://" + (frappe.local.site or SITE)
+	url = base + "/" + target.lstrip("/")
+	hops = 0
+	for _ in range(6):
+		req = urllib.request.Request(url, headers={"User-Agent": "glia-readiness/1.0"})
+		try:
+			with urllib.request.urlopen(req, timeout=8) as resp:
+				return resp.status, hops
+		except urllib.error.HTTPError as exc:
+			if exc.code in (301, 302, 307, 308) and exc.headers.get("Location"):
+				location = exc.headers["Location"]
+				url = location if location.startswith("http") else base + "/" + location.lstrip("/")
+				hops += 1
+				continue
+			return exc.code, hops
+		except Exception:
+			return 0, hops
+	return 0, hops
+
+
 def _redirects():
+	settings = frappe.get_doc("Website Settings", "Website Settings")
+	rows = [(row.source or "").strip("/") for row in settings.get("route_redirects", []) if row.source]
+	sources = set(rows)
 	settings = frappe.get_doc("Website Settings", "Website Settings")
 	sources = {(row.source or "").strip("/") for row in settings.get("route_redirects", []) if row.source}
 	items = frappe.get_all("Website Item", filters={"published": 1}, fields=["route", "item_code"])
@@ -59,12 +87,25 @@ def _redirects():
 		for r in pages
 		if r.route and f"pages/{r.route.strip('/')}" not in sources and not r.route.startswith("blog/")
 	]
-	ready = not missing_products and not missing_pages
-	return _check(
-		"redirects",
-		ready,
-		f"{len(sources)} redirects; missing {len(missing_products)} product and {len(missing_pages)} page URLs",
+	# Presence is not enough: a relative target makes Frappe redirect to itself,
+	# so a page can "have a redirect" and still loop. Follow a sample to the end.
+	sample = [s for s in rows if s.startswith(("products/", "pages/", "collections/", "blogs/"))][:12]
+	broken = []
+	for source in sample:
+		status, hops = _follow(source)
+		if status != 200 or hops == 0 or hops > 3:
+			broken.append({"source": source, "status": status, "hops": hops})
+
+	ready = not missing_products and not missing_pages and not broken
+	detail = (
+		f"{len(sources)} redirects; missing {len(missing_products)} product and "
+		f"{len(missing_pages)} page URLs"
 	)
+	if broken:
+		detail += f"; {len(broken)} sampled redirects do not land on 200: " + ", ".join(
+			f"{b['source']} -> {b['status']} ({b['hops']} hops)" for b in broken[:4]
+		)
+	return _check("redirects", ready, detail)
 
 
 def _tax():
