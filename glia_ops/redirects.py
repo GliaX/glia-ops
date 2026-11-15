@@ -24,37 +24,49 @@ COLLECTIONS = ("all", "glia", "merch", "devices", "donation", "donations", "fron
 STATUS = "301"
 
 
-def _upsert(source: str, target: str) -> str:
+def _settings():
+	return frappe.get_doc("Website Settings", "Website Settings")
+
+
+def _existing_sources(settings) -> set:
+	return {(row.source or "").strip("/") for row in settings.get("route_redirects", []) if row.source}
+
+
+def _append(settings, source: str, target: str) -> str:
 	source = (source or "").strip("/")
 	target = (target or "").strip("/")
 	if not source or not target or source == target:
 		return "skip"
-	if frappe.db.exists("Website Route Redirect", {"source": source}):
-		return "exists"
-
-	doc = frappe.new_doc("Website Route Redirect")
-	doc.update(
+	settings.append(
+		"route_redirects",
 		{
 			"source": source,
 			"target": target,
 			"redirect_http_status": STATUS,
 			"forward_query_parameters": 1,
-		}
+		},
 	)
-	doc.flags.ignore_permissions = True
-	doc.insert(ignore_permissions=True)
 	return "created"
 
 
 def generate_redirects():
+	"""Add the Shopify → ERPNext redirects to Website Settings.route_redirects."""
 	stats = {"created": 0, "exists": 0, "skip": 0}
 	samples = []
+	settings = _settings()
+	seen = _existing_sources(settings)
 
 	def record(label, source, target):
-		result = _upsert(source, target)
+		normalised = (source or "").strip("/")
+		if normalised in seen:
+			stats["exists"] += 1
+			return
+		result = _append(settings, source, target)
 		stats[result] = stats.get(result, 0) + 1
-		if result == "created" and len(samples) < 10:
-			samples.append({"kind": label, "source": source, "target": target})
+		if result == "created":
+			seen.add(normalised)
+			if len(samples) < 10:
+				samples.append({"kind": label, "source": normalised, "target": target})
 
 	for row in frappe.get_all("Website Item", filters={"published": 1}, fields=["route", "item_code"]):
 		handle = row.route or row.item_code
@@ -80,11 +92,12 @@ def generate_redirects():
 	record("account", "account/login", "login")
 	record("account", "account/register", "login")
 
+	settings.flags.ignore_permissions = True
+	settings.save(ignore_permissions=True)
 	frappe.db.commit()
 	frappe.clear_cache()
-	frappe.logger("glia_ops").info(f"redirect generation: {stats}")
-	return {
-		"stats": stats,
-		"samples": samples,
-		"total_redirects": frappe.db.count("Website Route Redirect"),
-	}
+
+	fresh = _settings()
+	total = len(fresh.get("route_redirects", []))
+	frappe.logger("glia_ops").info(f"redirect generation: {stats} (total {total})")
+	return {"stats": stats, "samples": samples, "total_redirects": total}
