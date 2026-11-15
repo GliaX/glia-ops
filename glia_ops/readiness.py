@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
 import frappe
@@ -46,18 +48,27 @@ def _backups():
 	return _check("backups", age <= 26, f"newest backup {state.get('stamp')} is {age:.1f} h old", "critical")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: F821
+	"""urllib follows redirects by default, which hides both the status and the hop
+	count — the exact blind spot that made a looping redirect pass as healthy."""
+
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		return None
+
+
 def _follow(target: str) -> tuple[int, int]:
-	"""Return (final status, hops) for a path on this site, following redirects."""
+	"""Return (final status, hops) for a path on this site, following redirects manually."""
 	import urllib.error
 	import urllib.request
 
 	base = "https://" + (frappe.local.site or SITE)
 	url = base + "/" + target.lstrip("/")
+	opener = urllib.request.build_opener(_NoRedirect)
 	hops = 0
 	for _ in range(6):
 		req = urllib.request.Request(url, headers={"User-Agent": "glia-readiness/1.0"})
 		try:
-			with urllib.request.urlopen(req, timeout=8) as resp:
+			with opener.open(req, timeout=8) as resp:
 				return resp.status, hops
 		except urllib.error.HTTPError as exc:
 			if exc.code in (301, 302, 307, 308) and exc.headers.get("Location"):
@@ -82,10 +93,16 @@ def _redirects():
 	missing_products = [
 		(r.route or r.item_code) for r in items if f"products/{r.route or r.item_code}" not in sources
 	]
+	# Pages that exist only on the new site (created after the migration) need no
+	# Shopify-style `pages/<handle>` redirect; requiring one would report a false gap.
+	NEW_PAGES = {"privacy-policy"}
 	missing_pages = [
 		r.route.strip("/")
 		for r in pages
-		if r.route and f"pages/{r.route.strip('/')}" not in sources and not r.route.startswith("blog/")
+		if r.route
+		and f"pages/{r.route.strip('/')}" not in sources
+		and not r.route.startswith("blog/")
+		and r.route.strip("/") not in NEW_PAGES
 	]
 	# Presence is not enough: a relative target makes Frappe redirect to itself,
 	# so a page can "have a redirect" and still loop. Follow a sample to the end.
