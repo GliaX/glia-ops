@@ -126,24 +126,29 @@ def _redirects():
 
 
 def _tax():
-	templates = frappe.db.count("Sales Taxes and Charges Template", {"company": "Glia", "disabled": 0})
-	rules = frappe.db.count("Tax Rule")
-	items_with_tax = frappe.db.sql(
-		"""select count(distinct i.name) c from `tabItem` i
-		   join `tabItem Tax` it on it.parent = i.name
-		   join `tabWebsite Item` wi on wi.item_code = i.name
-		   where wi.published = 1 and ifnull(it.item_tax_template, '') != ''""",
-		as_dict=True,
-	)[0].c
-	ready = templates > 0 and (items_with_tax > 0 or rules > 0)
-	return _check(
-		"tax",
-		ready,
-		f"{templates} templates, {rules} tax rules, {items_with_tax} published items with a tax template"
-		if not ready
-		else f"{templates} templates, {rules} rules, {items_with_tax} items taxed",
-		"critical",
-	)
+	"""Tax is applied at document level by destination province, so readiness checks
+	the rate templates and the destination rules — not item-level templates, which
+	this shop deliberately does not use (see glia_guest_checkout.taxes)."""
+	EXPECTED = {
+		"Canada HST 13% - Glia": 13.0,       # Ontario
+		"Canada HST 14% - Glia": 14.0,       # Nova Scotia
+		"Canada HST 15% - Glia": 15.0,       # NB / NL / PE
+		"Canada GST 5% - Glia": 5.0,         # AB / NT / NU / YT
+		"Canada GST+PST 12% - Glia": 12.0,   # British Columbia
+		"Canada GST+RST 12% - Glia": 12.0,   # Manitoba
+		"Canada GST+PST 11% - Glia": 11.0,   # Saskatchewan
+		"Canada GST+QST 14.975% - Glia": 14.975,  # Quebec
+	}
+	missing = [name for name in EXPECTED if not frappe.db.exists("Sales Taxes and Charges Template", name)]
+	rules = frappe.db.count("Tax Rule", {"tax_type": "Sales"})
+	provinces = frappe.get_all("Tax Rule", filters={"tax_type": "Sales"}, pluck="shipping_state")
+	provinces = {p for p in provinces if p}
+	tax_id = frappe.db.get_value("Company", "Glia", "tax_id")
+	ready = not missing and len(provinces) >= 13 and bool(tax_id)
+	detail = f"{len(EXPECTED) - len(missing)}/{len(EXPECTED)} rate templates, {len(provinces)} province rules, BN {tax_id or 'missing'}"
+	if missing:
+		detail += "; missing: " + ", ".join(missing[:4])
+	return _check("tax", ready, detail, "critical")
 
 
 def _accounts():
